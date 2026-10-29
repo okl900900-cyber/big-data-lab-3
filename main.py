@@ -5,18 +5,18 @@ Run from the project root with: python main.py
 from pathlib import Path
 
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import avg, col, expr, sum as spark_sum
+from pyspark.sql.functions import avg, col, expr, sum as spark_sum, round as spark_round
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
-DATA_PATH = PROJECT_DIR / "data" / "sales.csv"
+DATA_PATH = PROJECT_DIR / "data" / "Ecommerce.csv"
 OUTPUT_PATH = PROJECT_DIR / "output" / "sales_summary"
 
 
 def main() -> None:
     if not DATA_PATH.is_file():
         raise FileNotFoundError(
-            f"Dataset not found: {DATA_PATH}. Place the CSV at data/sales.csv."
+            f"Dataset not found: {DATA_PATH}. Place the CSV at data/Eccommerce.csv."
         )
 
     # Task 1: Initialize Spark and create a session.
@@ -28,7 +28,7 @@ def main() -> None:
     )
 
     try:
-        spark.sparkContext.setLogLevel("WARN")
+        spark.sparkContext.setLogLevel("ERROR")
         print("\n=== Task 1: Spark session ===")
         print("Spark version:", spark.version)
         print("Application name:", spark.sparkContext.appName)
@@ -41,24 +41,28 @@ def main() -> None:
             header=True,
             inferSchema=True,
         )
+        df = df.withColumn(
+            "Price",
+            col("Price").cast("decimal(12,2)")
+        )
         df.show(5, truncate=False)
         df.printSchema()
 
         # Task 3: Select columns, filter rows, and add a computed column.
         print("\n=== Task 3: DataFrame operations ===")
-        df_selected = df.select("Product", "Quantity", "Price")
-        df_filtered = df_selected.filter(col("Quantity") > 10)
-        df_new = df_filtered.withColumn("Total", expr("Quantity * Price"))
+        df_selected = df.select("Category", "Price", "Quantity")
+        df_filtered = df_selected.filter(col("Quantity") > 6)
+        df_new = df_filtered.withColumn("Total", (col("Quantity") * col("Price")))
         df_new.show(5, truncate=False)
-        print("Rows where Quantity > 10:", df_filtered.count())
+        print("Rows where Quantity > 6:", df_filtered.count())
 
         # Task 4: Group and aggregate the transformed data.
         print("\n=== Task 4: Group and aggregate ===")
         df_agg = (
-            df_new.groupBy("Product")
+            df_new.groupBy("Category")
             .agg(
                 spark_sum("Total").alias("TotalSales"),
-                avg("Price").alias("AveragePrice"),
+                spark_round(avg("Price"), 2).alias("AveragePrice")
             )
         )
         df_agg.orderBy(col("TotalSales").desc()).show(truncate=False)
@@ -68,11 +72,11 @@ def main() -> None:
         df_new.createOrReplaceTempView("sales_table")
         query = """
             SELECT
-                Product,
+                Category,
                 SUM(Total) AS TotalSales,
-                AVG(Price) AS AveragePrice
+                ROUND(AVG(Price), 2) AS AveragePrice
             FROM sales_table
-            GROUP BY Product
+            GROUP BY Category
             ORDER BY TotalSales DESC
         """
         result = spark.sql(query)
